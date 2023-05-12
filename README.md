@@ -1,39 +1,16 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# FeatureProbe Client Side SDK for Flutter
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/guides/libraries/writing-package-pages).
+FeatureProbe is an open source feature management service. This SDK is used to control features in flutter programs.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-library-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/developing-packages).
--->
+## Basic Terms
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+Reading the short [Introduction](https://docs.featureprobe.io/reference/sdk-introduction) will help to understand the code blow more easily. [中文](https://docs.featureprobe.io/zh-CN/reference/sdk-introduction)
 
-## Features
+## Contributing
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+We are working on continue evolving FeatureProbe core, making it flexible and easier to use.
+Development of FeatureProbe happens in the open on GitHub, and we are grateful to the
+community for contributing bugfixes and improvements.
 
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
-
-## Usage
-
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
-```dart
-const like = 'sample';
-```
-
-## Additional information
-
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+Please read [CONTRIBUTING](https://github.com/FeatureProbe/featureprobe/blob/master/CONTRIBUTING.md)
+for details on our code of conduct, and the process for taking part in improving FeatureProbe.
