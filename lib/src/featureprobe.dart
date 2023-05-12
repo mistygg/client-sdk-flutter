@@ -238,6 +238,14 @@ class FPDetail<T> {
         version: toggle.version,
         reason: toggle.reason);
   }
+
+  Map toJson() => {
+        'value': value,
+        'ruleIndex': ruleIndex,
+        'variationIndex': variationIndex,
+        'version': version,
+        'reason': reason
+      };
 }
 
 T? tryCast<T>(dynamic value) {
