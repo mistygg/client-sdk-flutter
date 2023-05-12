@@ -1,13 +1,18 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 class EventRecorder {
   String eventsUrl;
   String sdkKey;
+  String userAgent;
   int flushInterval;
+  late Timer flushTimer;
   late List<Event> events;
   late HttpClient httpClient;
 
-  EventRecorder(this.eventsUrl, this.sdkKey, this.flushInterval) {
+  EventRecorder(
+      this.eventsUrl, this.sdkKey, this.flushInterval, this.userAgent) {
     events = [];
     httpClient = HttpClient();
   }
@@ -16,15 +21,55 @@ class EventRecorder {
     events.add(event);
   }
 
-  void flush() {}
+  Future<void> start() async {
+    final d = Duration(milliseconds: flushInterval);
+    flushTimer = Timer.periodic(d, (timer) async {
+      await flush();
+    });
+  }
 
-  Access access() {
+  Future<void> stop() async {
+    await flush();
+    flushTimer.cancel();
+  }
+
+  Future<void> flush() async {
+    final body = buildBody();
+    if (body == null) {
+      return;
+    }
+    final bodyJson = jsonEncode(body);
+    final client = HttpClient();
+
+    try {
+      final req = await client.postUrl(Uri.parse(eventsUrl));
+      req.headers.set(HttpHeaders.authorizationHeader, sdkKey);
+      req.headers.set(HttpHeaders.userAgentHeader, userAgent);
+      req.headers.set(
+          HttpHeaders.contentTypeHeader, "application/json; charset=UTF-8");
+      req.write(bodyJson);
+
+      await req.close();
+    } finally {
+      client.close();
+    }
+  }
+
+  PostBody? buildBody() {
     int? startTime;
     int? endTime;
     Map<String, List<Counter>> counters = {};
 
+    List<Event> filteredEvents = [];
+
+    if (events.isEmpty) {
+      return null;
+    }
+
     for (var event in events) {
-      if (event.kind == "access") {
+      if (event.kind != "access") {
+        filteredEvents.add(event);
+      } else {
         if (startTime == null || startTime > event.time) {
           startTime = event.time;
         }
@@ -33,6 +78,9 @@ class EventRecorder {
         }
 
         var e = event as AccessEvent;
+        if (e.trackAccessEvents != null && e.trackAccessEvents! == true) {
+          filteredEvents.add(e);
+        }
         var counter = counters[e.key];
         if (counter == null) {
           counters[e.key] = [Counter(e.value, e.version, e.variationIndex, 1)];
@@ -54,15 +102,28 @@ class EventRecorder {
       }
     }
 
-    return Access(startTime!, endTime!, counters);
+    // clear existing events
+    events = [];
+
+    final pack =
+        PostPack(Access(startTime!, endTime!, counters), filteredEvents);
+    return PostBody(pack);
   }
 }
 
 class PostBody {
+  PostPack pack;
+
+  PostBody(this.pack);
+
+  List toJson() => [pack];
+}
+
+class PostPack {
   Access access;
   List<Event> events;
 
-  PostBody(this.access, this.events);
+  PostPack(this.access, this.events);
 
   Map toJson() => {
         'access': access,
@@ -114,11 +175,13 @@ class AccessEvent implements Event {
 
   String key;
   int variationIndex;
-  int ruleIndex;
+  int? ruleIndex;
   int version;
+  bool? trackAccessEvents;
 
   AccessEvent(this.kind, this.time, this.user, this.value, this.key,
-      this.variationIndex, this.ruleIndex, this.version);
+      this.variationIndex, this.ruleIndex, this.version,
+      {this.trackAccessEvents});
 
   Map toJson() => {
         'kind': kind,
@@ -144,8 +207,8 @@ class DebugEvent implements Event {
 
   String key;
   dynamic userDetail;
-  int variationIndex;
-  int ruleIndex;
+  int? variationIndex;
+  int? ruleIndex;
   int version;
   String reason;
 

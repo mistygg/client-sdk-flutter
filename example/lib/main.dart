@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'package:featureprobe/featureprobe.dart';
 
-import 'dart:developer' as developer;
-
 void main() async {
   var user = FPUser();
-  var fp = FeatureProbe("https://featureprobe.io/server",
-      "client-c818e854f483dda94e21d91889ab9557ecf0707d", user, 10 * 1000, 0);
+  var fp = FeatureProbe(
+      "https://featureprobe.io/server",
+      "client-75d9182a7724b03d531178142b9031b831e464fe",
+      user,
+      10 * 1000,
+      2 * 1000);
   await fp.start();
+
+  fp.boolDetail('campaign_allow_list', false);
   runApp(const MyApp());
 }
 

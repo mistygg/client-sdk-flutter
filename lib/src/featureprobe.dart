@@ -1,15 +1,19 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
-import 'user.dart';
 import 'dart:developer';
+
+import 'event.dart';
+import 'user.dart';
+
+const userAgent = "flutter/0.1.0";
 
 class FeatureProbe {
   Map<String, Toggle>? toggles;
   late FPUser user;
   late String sdkKey;
-  late HttpClient httpClient;
   late Timer syncTimer;
+  late EventRecorder recorder;
 
   String? togglesUrl;
   String? eventsUrl;
@@ -32,47 +36,52 @@ class FeatureProbe {
     eventsUrl ??= "$remoteUrl/api/events";
     realtimeUrl ??= "$remoteUrl/realtime";
 
-    httpClient = HttpClient();
+    recorder = EventRecorder(eventsUrl!, sdkKey, refreshInterval, userAgent);
   }
 
   Future<void> start() async {
+    recorder.start();
     if (waitTimeout != 0) {
-      await syncOnce().timeout(Duration(milliseconds: waitTimeout));
+      await _syncOnce().timeout(Duration(milliseconds: waitTimeout));
     }
 
-    var d = Duration(milliseconds: refreshInterval);
+    final d = Duration(milliseconds: refreshInterval);
     syncTimer = Timer.periodic(d, (timer) async {
-      //code to run on every 5 seconds
-      await syncOnce();
+      await _syncOnce();
     });
   }
 
-  void stop() {
-    // TODO: flush events
+  Future<void> stop() async {
     syncTimer.cancel();
+    await recorder.stop();
+  }
+
+  void trackEvent(String name, dynamic value) {
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+    recorder.recordEvent(CustomEvent("custom", now, user.key, value, name));
   }
 
   bool boolValue(String key, bool defaultValue) {
-    return value<bool>(key, defaultValue);
+    return _value<bool>(key, defaultValue);
   }
 
   int numberValue(String key, int defaultValue) {
-    return value<int>(key, defaultValue);
+    return _value<int>(key, defaultValue);
   }
 
   String stringValue(String key, String defaultValue) {
-    return value<String>(key, defaultValue);
+    return _value<String>(key, defaultValue);
   }
 
   dynamic jsonValue(String key, dynamic defaultValue) {
-    return value<dynamic>(key, defaultValue);
+    return _value<dynamic>(key, defaultValue);
   }
 
-  T value<T>(String key, dynamic defaultValue) {
-    //TODO: record event
-
+  T _value<T>(String key, dynamic defaultValue) {
     var toggle = toggles?[key];
     if (toggle != null) {
+      _trackAccess(key, toggle);
+
       return tryCast<T>(toggle.value) ?? defaultValue;
     } else {
       return defaultValue;
@@ -80,28 +89,28 @@ class FeatureProbe {
   }
 
   FPDetail<bool> boolDetail(String key, bool defaultValue) {
-    return detail<bool>(key, defaultValue);
+    return _detail<bool>(key, defaultValue);
   }
 
   FPDetail<int> numberDetail(String key, int defaultValue) {
-    return detail<int>(key, defaultValue);
+    return _detail<int>(key, defaultValue);
   }
 
   FPDetail<String> stringDetail(String key, String defaultValue) {
-    return detail<String>(key, defaultValue);
+    return _detail<String>(key, defaultValue);
   }
 
   FPDetail<dynamic> jsonDetail(String key, dynamic defaultValue) {
-    return detail<dynamic>(key, defaultValue);
+    return _detail<dynamic>(key, defaultValue);
   }
 
-  FPDetail<T> detail<T>(String key, T defaultValue) {
-    //TODO: record event
-
+  FPDetail<T> _detail<T>(String key, T defaultValue) {
     var toggle = toggles?[key];
     T v = defaultValue;
     String? r;
     if (toggle != null) {
+      _trackAccess(key, toggle);
+
       var value = tryCast<T>(toggle.value);
       if (value == null) {
         r = "Value type mismatch";
@@ -121,8 +130,30 @@ class FeatureProbe {
         version: toggle?.version);
   }
 
-  Future<void> syncOnce() async {
-    log("syncOnce");
+  void _trackAccess(String key, Toggle toggle) {
+    // track access
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+
+    recorder.recordEvent(AccessEvent("access", now, user.key, toggle.value, key,
+        toggle.variationIndex!, toggle.ruleIndex, toggle.version!,
+        trackAccessEvents: toggle.trackAccessEvents));
+
+    if (toggle.debugUntilTime != null && toggle.debugUntilTime! > now) {
+      recorder.recordEvent(DebugEvent(
+          "debug",
+          now,
+          user.key,
+          key,
+          toggle.value,
+          user,
+          toggle.variationIndex,
+          toggle.ruleIndex,
+          toggle.version!,
+          toggle.reason));
+    }
+  }
+
+  Future<void> _syncOnce() async {
     String credentials = jsonEncode(user);
     Codec<String, String> stringToBase64Url = utf8.fuse(base64Url);
     String encoded = stringToBase64Url.encode(credentials);
@@ -131,19 +162,25 @@ class FeatureProbe {
       'user': encoded,
     });
 
-    HttpClientRequest request = await httpClient.getUrl(url);
-    request.headers.add(HttpHeaders.authorizationHeader, sdkKey);
-    request.headers.add(HttpHeaders.userAgentHeader, "flutter/0.1.0");
-    request.headers.add(HttpHeaders.contentTypeHeader, "application/json");
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(url);
+      request.headers.add(HttpHeaders.authorizationHeader, sdkKey);
+      request.headers.add(HttpHeaders.userAgentHeader, userAgent);
+      request.headers.add(HttpHeaders.contentTypeHeader, "application/json");
 
-    HttpClientResponse response = await request.close();
+      final response = await request.close();
 
-    if (response.statusCode == HttpStatus.ok) {
-      var body = await response.transform(utf8.decoder).join();
-      Map<String, dynamic> json = jsonDecode(body);
-      toggles = json.map((key, value) => MapEntry(key, Toggle.fromJson(value)));
-    } else {
-      log("Error: ${response.statusCode}");
+      if (response.statusCode == HttpStatus.ok) {
+        final body = await response.transform(utf8.decoder).join();
+        final Map<String, dynamic> json = jsonDecode(body);
+        toggles =
+            json.map((key, value) => MapEntry(key, Toggle.fromJson(value)));
+      } else {
+        log("syncOnce Error: $response");
+      }
+    } finally {
+      client.close();
     }
   }
 }
@@ -155,12 +192,17 @@ class Toggle {
   int? version;
   late String reason;
 
+  int? debugUntilTime;
+  bool? trackAccessEvents;
+
   Toggle(
       {this.value,
       this.ruleIndex,
       this.variationIndex,
       this.version,
-      required this.reason});
+      required this.reason,
+      this.debugUntilTime,
+      this.trackAccessEvents});
 
   factory Toggle.fromJson(Map<String, dynamic> parsedJson) {
     return Toggle(
@@ -168,7 +210,9 @@ class Toggle {
         ruleIndex: parsedJson['ruleIndex'],
         variationIndex: parsedJson['variationIndex'],
         version: parsedJson['version'],
-        reason: parsedJson['reason']);
+        reason: parsedJson['reason'],
+        debugUntilTime: parsedJson['debugUntileTime'],
+        trackAccessEvents: parsedJson['trackAccessEvents']);
   }
 }
 
