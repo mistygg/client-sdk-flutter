@@ -90,9 +90,9 @@ class FeatureProbe {
         (_) => log('socketio disconnect', name: 'featureprobe.socketio'));
   }
 
-  void trackEvent(String name, dynamic value) {
+  void track(String event, dynamic value) {
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
-    recorder.recordEvent(CustomEvent("custom", now, user.key, value, name));
+    recorder.recordEvent(CustomEvent("custom", now, user.key, value, event));
   }
 
   bool boolValue(String key, bool defaultValue) {
