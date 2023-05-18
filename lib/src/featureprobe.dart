@@ -6,6 +6,8 @@ import 'dart:developer';
 import 'event.dart';
 import 'user.dart';
 
+import 'package:socket_io_client/socket_io_client.dart' as sio;
+
 const userAgent = "flutter/0.1.0";
 
 class FeatureProbe {
@@ -14,6 +16,7 @@ class FeatureProbe {
   late String sdkKey;
   late Timer syncTimer;
   late EventRecorder recorder;
+  late bool? realtime;
 
   String? togglesUrl;
   String? eventsUrl;
@@ -21,6 +24,7 @@ class FeatureProbe {
 
   int refreshInterval;
   int waitTimeout;
+  sio.Socket? socket;
 
   FeatureProbe(
     String remoteUrl,
@@ -31,6 +35,7 @@ class FeatureProbe {
     this.togglesUrl,
     this.eventsUrl,
     this.realtimeUrl,
+    this.realtime,
   }) {
     togglesUrl ??= "$remoteUrl/api/client-sdk/toggles";
     eventsUrl ??= "$remoteUrl/api/events";
@@ -44,6 +49,7 @@ class FeatureProbe {
     if (waitTimeout != 0) {
       await _syncOnce().timeout(Duration(milliseconds: waitTimeout));
     }
+    connectSocket();
 
     final d = Duration(milliseconds: refreshInterval);
     syncTimer = Timer.periodic(d, (timer) async {
@@ -54,6 +60,34 @@ class FeatureProbe {
   Future<void> stop() async {
     syncTimer.cancel();
     await recorder.stop();
+    socket?.close();
+  }
+
+  void connectSocket() {
+    if (realtime == null || !realtime!) {
+      log('socketio skip', name: 'featureprobe.socketio');
+      return;
+    }
+
+    final path = Uri.parse(realtimeUrl!).path;
+    socket = sio.io(
+        realtimeUrl,
+        sio.OptionBuilder()
+            .setTransports(['websocket']) // for Flutter or Dart VM
+            .setPath(path)
+            .build());
+    socket?.onConnect((_) {
+      log('socketio connected', name: 'featureprobe.socketio');
+      socket?.emit('register', {"key": sdkKey});
+    });
+    socket?.on('update', (_) async {
+      log('socketio update', name: 'featureprobe.socketio');
+      await _syncOnce();
+    });
+    socket
+        ?.onError((_) => log('socketio error', name: 'featureprobe.socketio'));
+    socket?.onDisconnect(
+        (_) => log('socketio disconnect', name: 'featureprobe.socketio'));
   }
 
   void trackEvent(String name, dynamic value) {

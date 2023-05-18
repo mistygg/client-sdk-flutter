@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:featureprobe/featureprobe.dart';
+import 'dart:developer' as developer;
 
 late FeatureProbe fp;
 late String toggleJson;
@@ -13,8 +14,10 @@ void main() async {
       "client-75d9182a7724b03d531178142b9031b831e464fe",
       fpUser,
       10 * 1000,
-      2 * 1000);
+      2 * 1000,
+      realtime: true);
   await fp.start();
+  developer.log('start', name: 'featureprobe.demo');
 
   FPDetail<bool> value = fp.boolDetail('campaign_allow_list', false);
   toggleJson = jsonEncode(value);
